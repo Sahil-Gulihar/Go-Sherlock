@@ -60,6 +60,7 @@ var (
 		withTor         bool
 		specifySite     bool
 		download        bool
+		advancedSearch  bool
 	}
 )
 
@@ -93,6 +94,22 @@ func (c *counter) Add() {
 
 func (c *counter) Get() int {
 	return int(atomic.LoadInt32(&c.n))
+}
+
+
+func InvestigoAllSubstrings(username string, site string, data SiteData) []Result {
+    results := []Result{}
+    n := len(username)
+
+    for i := 0; i < n; i++ {
+        for j := i + 1; j <= n; j++ {
+            substring := username[i:j]
+            result := Investigo(substring, site, data)
+            results = append(results, result)
+        }
+    }
+
+    return results
 }
 
 func parseArguments() []string {
@@ -139,6 +156,12 @@ options:
 		logger = log.New(os.Stdout, "", 0)
 		args = append(args[:argIndex], args[argIndex+1:]...)
 	}
+
+
+	options.advancedSearch, argIndex = HasElement(args, "--ad")
+    if options.advancedSearch {
+        args = append(args[:argIndex], args[argIndex+1:]...)
+    }
 
 	options.noOutput, argIndex = HasElement(args, "--no-output")
 	if options.noColor {
@@ -238,34 +261,36 @@ func main() {
 	}
 
 	for _, username := range usernames {
-		if options.noColor {
-			fmt.Printf("\nInvestigating %s on:\n", username)
-		} else {
-			fmt.Fprintf(color.Output, "Investigating %s on:\n", color.HiGreenString(username))
-		}
+        if options.noColor {
+            fmt.Printf("\nInvestigating %s on:\n", username)
+        } else {
+            fmt.Fprintf(color.Output, "Investigating %s on:\n", color.HiGreenString(username))
+        }
 
-		os.MkdirAll("results/"+username, os.ModePerm)
+        if options.advancedSearch {
+            fmt.Println("Advanced search: Investigating all substrings")
+        }
 
-		waitGroup.Add(len(siteData))
-		for site := range siteData {
-			guard <- 1
-			go func(site string) {
-				defer waitGroup.Done()
-				res := Investigo(username, site, siteData[site])
-				WriteResult(res)
-				<-guard
-			}(site)
-		}
-		waitGroup.Wait()
+        os.MkdirAll("results/"+username, os.ModePerm)
 
-		if !options.noOutput {
-			f, err := os.Create("results/" + username + "/out.txt")
-			if err != nil {
-				panic(err)
-			}
-			f.WriteString(outStream.String())
-			f.Close()
-		}
+        waitGroup.Add(len(siteData))
+        for site := range siteData {
+            guard <- 1
+            go func(site string) {
+                defer waitGroup.Done()
+                if options.advancedSearch {
+                    results := InvestigoAllSubstrings(username, site, siteData[site])
+                    for _, res := range results {
+                        WriteResult(res)
+                    }
+                } else {
+                    res := Investigo(username, site, siteData[site])
+                    WriteResult(res)
+                }
+                <-guard
+            }(site)
+        }
+        waitGroup.Wait()
 	}
 
 }
